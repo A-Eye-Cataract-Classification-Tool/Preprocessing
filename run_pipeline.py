@@ -3,7 +3,7 @@ import numpy as np
 import torch
 from torchvision.transforms.functional import to_pil_image
 
-# ------------------- CLAHE -------------------
+# ------------------- CLAHE ------------------- not accurate
 def apply_clahe(image):
     lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
     l, a, b = cv2.split(lab)
