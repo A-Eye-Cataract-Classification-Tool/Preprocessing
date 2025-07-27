@@ -59,7 +59,8 @@ def get_pupil_from_sam(predictor, image, prompt_point):
 def process_eye_image(image_path, predictor, output_dir='processed_images'):
     """
     Final automatic version. Detects the pupil and creates a zoomed-in,
-    masked crop of the detected region.
+    circular, transparent-background crop where the pupil itself fills
+    the final 128x128 dimensions.
     """
     # --- Steps 1-4: Detection (remain the same) ---
     img_bgr = cv2.imread(image_path)
@@ -122,37 +123,45 @@ def process_eye_image(image_path, predictor, output_dir='processed_images'):
     px, py, pr = final_pupil
     ix, iy, ir = final_iris
 
-    # --- 5. Cropping, Masking, and Resizing (New Logic) ---
+    # --- 5. Cropping, Masking, and Resizing (MODIFIED FOR 128x128 FIT) ---
     
-    # MODIFIED: Decreased multiplier from 3 to 1.8 for a tighter zoom.
-    crop_radius = int(pr * 2.0)
-    
-    # Calculate the coordinates for the square crop box, centered on the pupil.
+    # MODIFIED: Create a tight square crop box using the pupil radius 'pr'.
+    # This box will have a width and height of 2*pr.
+    crop_radius = pr
     x1 = max(0, px - crop_radius)
     y1 = max(0, py - crop_radius)
     x2 = min(width, px + crop_radius)
     y2 = min(height, py + crop_radius)
     
-    # Perform the crop.
+    # Perform the tight square crop.
     cropped_eye = img_original[y1:y2, x1:x2]
     
-    # Create a mask for this new, smaller cropped image.
+    # Handle cases where the crop might be empty (if pupil is at the very edge)
+    if cropped_eye.size == 0:
+        print(f"⚠️ Warning: Crop failed for {image_path}, pupil likely at edge.")
+        return None, None
+
+    # Convert the BGR crop to a BGRA image (adding an alpha channel)
+    cropped_eye_bgra = cv2.cvtColor(cropped_eye, cv2.COLOR_BGR2BGRA)
+    
+    # Create a mask for the smaller cropped image dimensions
     mask = np.zeros(cropped_eye.shape[:2], dtype="uint8")
     
-    # Calculate the pupil's new coordinates within the cropped image.
+    # Calculate the pupil's new coordinates within this tight crop
     px_local = px - x1
     py_local = py - y1
     
-    # Draw the pupil circle on the mask.
+    # Draw the circular pupil on the mask. It will touch the edges of the mask.
     cv2.circle(mask, (px_local, py_local), pr, 255, -1)
     
-    # Apply the mask to the cropped image.
-    masked_crop = cv2.bitwise_and(cropped_eye, cropped_eye, mask=mask)
+    # Apply the mask to the alpha channel of the BGRA image
+    cropped_eye_bgra[:, :, 3] = mask
     
-    # Resize the final masked crop to 128x128.
-    processed_image = cv2.resize(masked_crop, (128, 128), interpolation=cv2.INTER_AREA)
+    # Resize the final image. Because the circle touches the edges of the cropped
+    # square, it will now fill the entire 128x128 final image.
+    processed_image = cv2.resize(cropped_eye_bgra, (128, 128), interpolation=cv2.INTER_AREA)
 
-    # --- 6. Create Debug Image ---
+    # --- 6. Create Debug Image (remains the same) ---
     debug_image = img_original.copy()
     cv2.circle(debug_image, (ix, iy), ir, (255, 100, 0), 3) # Blue Iris
     cv2.circle(debug_image, (px, py), pr, (0, 255, 0), 2)   # Green Pupil
